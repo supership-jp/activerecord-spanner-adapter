@@ -1,4 +1,4 @@
 $LOAD_PATH.unshift File.expand_path('../../lib', __FILE__)
-require 'activerecord/spanner/adapter'
+require 'active_record/connection_adapters/spanner'
 
 require 'minitest/autorun'
