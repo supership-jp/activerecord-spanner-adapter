@@ -7,9 +7,21 @@ class ActiveRecord::ConnectionAdapters::SpannerTest < Minitest::Test
   end
 
   def test_that_it_establishes_connection
+    establish_connection
+  end
+
+  def test_connection_activeness
+    establish_connection
+    assert ActiveRecord::Base.connection.active?
+  end
+
+  private
+  def establish_connection
     ActiveRecord::Base.establish_connection(
       adapter: 'spanner',
-      name: 'yugui-experimental',
+      project: 'pj-seneca',
+      instance: 'yugui-experimental',
+      database: 'e1',
       keyfile: File.join(__dir__, '../../service-account.json'),
     )
   end
