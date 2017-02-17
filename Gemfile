@@ -4,3 +4,5 @@ source 'https://rubygems.org'
 gemspec
 
 gem 'google-cloud-spanner', path: 'vendor/gcloud-ruby/google-cloud-spanner'
+gem 'pry'
+gem 'pry-byebug'
