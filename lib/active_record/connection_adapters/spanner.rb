@@ -1,4 +1,5 @@
-require "activerecord-spanner-adapter/version"
+require "active_record"
+require "active_record/connection_adapters/spanner_adapter"
 
 module ActiveRecord
   module ConnectionAdapters
