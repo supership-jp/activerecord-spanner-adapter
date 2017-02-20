@@ -15,12 +15,23 @@ class ActiveRecord::ConnectionAdapters::SpannerTest < Minitest::Test
     assert ActiveRecord::Base.connection.active?
   end
 
+  def test_create_database
+    establish_connection
+
+    name = "testdb_#{Time.now.to_i}"
+    ActiveRecord::Base.connection.create_database name
+  ensure
+    ActiveRecord::Base.connection.drop_database name
+  end
+
   private
+  TEST_INSTANCE = "yugui-experimental"
+
   def establish_connection
     ActiveRecord::Base.establish_connection(
       adapter: 'spanner',
       project: 'pj-seneca',
-      instance: 'yugui-experimental',
+      instance: TEST_INSTANCE,
       database: 'e1',
       keyfile: File.join(__dir__, '../../service-account.json'),
     )

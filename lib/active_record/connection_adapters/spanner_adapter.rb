@@ -1,5 +1,7 @@
 require 'google/cloud/spanner'
+
 require 'active_record/connection_adapters/abstract_adapter'
+require 'active_record/connection_adapters/spanner/schema_statements'
 
 module ActiveRecord
   module ConnectionHandling
@@ -18,11 +20,16 @@ module ActiveRecord
       CLIENT_PARAMS = [:project, :keyfile, :scope, :timeout, :client_config].freeze
       ADAPTER_OPTS = (CLIENT_PARAMS + [:instance, :database]).freeze
 
+      include Spanner::SchemaStatements
+
       def initialize(connection, logger, config)
         super(connection, logger, config)
         conn_params = config.symbolize_keys.slice(*ADAPTER_OPTS)
         connect(conn_params)
       end
+
+      attr_reader :connection
+      private :connection
 
       def active?
         !!@connection
