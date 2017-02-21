@@ -34,16 +34,15 @@ module ActiveRecord
       end
 
       def active?
-        !!@db
+        !!@client
         # TODO(yugui) Check db.service.channel.connectivity_state once it is fixed?
       end
 
       def connect(params)
         client_params = params.slice(*CLIENT_PARAMS)
-        client = Google::Cloud::Spanner.new(**client_params)
-        @db = client.database(params[:instance], params[:database])
-        raise ActiveRecord::ConnectionNotEstablished, 
-          "database #{db.database_path} is not ready" unless @db.ready?
+        @client = Google::Cloud::Spanner.new(**client_params)
+        @instance_id = params[:instance]
+        @database_id = params[:database]
       end
 
       def disconnect!
@@ -60,8 +59,23 @@ module ActiveRecord
       end
 
       private
+      attr_reader :client
+
+      def instance
+        @instance ||= client.instance(@instance_id)
+      end
+
+      def database
+        return @db if @db
+
+        @db = instance.database(@database_id)
+        raise ActiveRecord::ConnectionNotEstablished, 
+          "database #{@db.database_path} is not ready" unless @db.ready?
+        @db
+      end
+
       def session
-        @session ||= @db.session
+        @session ||= database.session
       end
 
       def invalidate_session

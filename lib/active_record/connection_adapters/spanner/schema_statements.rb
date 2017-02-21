@@ -20,18 +20,17 @@ module ActiveRecord
           NATIVE_DATABASE_TYPES
         end
 
-        def create_database(name, instance: nil, statements: [])
-          conn = session
-          instance ||= conn.instance_id
-          job = conn.service.create_database(instance, name, statements: statements)
+        def create_database(name, instance_id: nil, statements: [])
+          service = instance.service
+          job = service.create_database(instance_id || instance.instance_id, name,
+                                        statements: statements)
           job.wait_until_done! unless job.done?
           raise_on_error(job)
         end
 
-        def drop_database(name, instance: nil)
-          conn = session
-          instance ||= conn.instance_id
-          conn.service.drop_database(instance, name)
+        def drop_database(name, instance_id: nil)
+          service = instance.service
+          service.drop_database(instance_id || instance.instance_id, name)
         end
 
         def drop_table(name, options = {})
@@ -49,9 +48,11 @@ module ActiveRecord
         end
 
         def execute_ddl(ddl)
-          job = @db.update(statements: [ddl.to_str])
-          job.wait_until_done! unless job.done?
-          raise_on_error(job)
+          log(ddl, 'SCHEMA') do
+            job = database.update(statements: [ddl.to_str])
+            job.wait_until_done! unless job.done?
+            raise_on_error(job.grpc)
+          end
         end
 
         private

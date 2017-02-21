@@ -8,7 +8,7 @@ describe ActiveRecord::ConnectionAdapters::Spanner::SchemaStatements do
   end
 
   before do
-    establish_connection
+    establish_connection(db_name)
     ActiveRecord::Base.connection.create_database db_name
   end
 
@@ -21,6 +21,7 @@ describe ActiveRecord::ConnectionAdapters::Spanner::SchemaStatements do
       create_table :principal do |t|
         t.string :email
         t.text :description
+        t.timestamp
       end
     end
   end
