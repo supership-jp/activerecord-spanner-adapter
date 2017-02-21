@@ -2,6 +2,8 @@ require 'test_helper'
 require 'active_record'
 
 describe ActiveRecord::ConnectionAdapters::Spanner do
+  include ActiveRecord::ConnectionAdapters::Spanner::TestHelper
+
   it 'has version' do
     ActiveRecord::ConnectionAdapters::Spanner::VERSION.wont_be_nil
   end
@@ -24,18 +26,5 @@ describe ActiveRecord::ConnectionAdapters::Spanner do
     ensure
       ActiveRecord::Base.connection.drop_database name
     end
-  end
-
-  private
-  TEST_INSTANCE = "yugui-experimental"
-
-  def establish_connection
-    ActiveRecord::Base.establish_connection(
-      adapter: 'spanner',
-      project: 'pj-seneca',
-      instance: TEST_INSTANCE,
-      database: 'e1',
-      keyfile: File.join(__dir__, '../../service-account.json'),
-    )
   end
 end

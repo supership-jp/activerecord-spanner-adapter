@@ -1,6 +1,7 @@
 require 'google/cloud/spanner'
 
 require 'active_record/connection_adapters/abstract_adapter'
+require 'active_record/connection_adapters/spanner/schema_creation'
 require 'active_record/connection_adapters/spanner/schema_statements'
 
 module ActiveRecord
@@ -28,6 +29,10 @@ module ActiveRecord
         connect(conn_params)
       end
 
+      def schema_creation # :nodoc:
+        Spanner::SchemaCreation.new self
+      end
+
       def active?
         !!@db
         # TODO(yugui) Check db.service.channel.connectivity_state once it is fixed?
@@ -43,6 +48,15 @@ module ActiveRecord
 
       def disconnect!
         invalidate_session
+      end
+
+      def execute(stmt)
+        case stmt
+        when Spanner::DDL
+          execute_ddl(stmt)
+        else
+          super(stmt)
+        end
       end
 
       private
