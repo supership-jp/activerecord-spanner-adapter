@@ -1,27 +1,29 @@
 require 'test_helper'
 require 'active_record'
 
-class ActiveRecord::ConnectionAdapters::SpannerTest < Minitest::Test
-  def test_that_it_has_a_version_number
-    refute_nil ::ActiveRecord::ConnectionAdapters::Spanner::VERSION
+describe ActiveRecord::ConnectionAdapters::Spanner do
+  it 'has version' do
+    ActiveRecord::ConnectionAdapters::Spanner::VERSION.wont_be_nil
   end
 
-  def test_that_it_establishes_connection
+  it 'establishes a connection' do
     establish_connection
   end
 
-  def test_connection_activeness
+  it 'has an active connection' do
     establish_connection
-    assert ActiveRecord::Base.connection.active?
+    ActiveRecord::Base.connection.must_be :active?
   end
 
-  def test_create_database
+  it 'is able to create database' do 
     establish_connection
 
     name = "testdb_#{Time.now.to_i}"
-    ActiveRecord::Base.connection.create_database name
-  ensure
-    ActiveRecord::Base.connection.drop_database name
+    begin
+      ActiveRecord::Base.connection.create_database name
+    ensure
+      ActiveRecord::Base.connection.drop_database name
+    end
   end
 
   private
