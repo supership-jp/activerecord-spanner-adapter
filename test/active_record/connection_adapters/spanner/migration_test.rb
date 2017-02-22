@@ -18,7 +18,7 @@ describe ActiveRecord::ConnectionAdapters::Spanner::SchemaStatements do
 
   class AddRootTable < ActiveRecord::Migration[5.0]
     def change
-      create_table :principal do |t|
+      create_table :principals do |t|
         t.string :email
         t.text :description
         t.timestamp
@@ -28,6 +28,7 @@ describe ActiveRecord::ConnectionAdapters::Spanner::SchemaStatements do
 
   it 'creates table as defined' do
     AddRootTable.migrate(:up)
+    ActiveRecord::Base.connection.tables.must_include 'principals'
     AddRootTable.migrate(:down)
   end
 

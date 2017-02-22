@@ -58,6 +58,17 @@ module ActiveRecord
         end
       end
 
+      def exec_query(sql, name = 'SQL', binds = [], prepare: :ignored)
+        log(sql, name, binds) do
+          results = session.execute(sql, streaming: false) 
+          columns = results.types.map(&:first)
+          rows = results.rows.map {|row|
+            columns.map {|name| row[name] }
+          }
+          ActiveRecord::Result.new(columns, rows)
+        end
+      end
+
       private
       attr_reader :client
 

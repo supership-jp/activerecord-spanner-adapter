@@ -20,6 +20,18 @@ module ActiveRecord
           NATIVE_DATABASE_TYPES
         end
 
+        def tables
+          # https://cloud.google.com/spanner/docs/information-schema
+          select_values(<<-SQL, 'SCHEMA')
+            SELECT
+              t.table_name
+            FROM
+              information_schema.tables AS t
+            WHERE
+              t.table_catalog = '' AND t.table_schema = ''
+          SQL
+        end
+
         def create_database(name, instance_id: nil, statements: [])
           service = instance.service
           job = service.create_database(instance_id || instance.instance_id, name,
