@@ -1,6 +1,7 @@
 require 'google/cloud/spanner'
 
 require 'active_record/connection_adapters/abstract_adapter'
+require 'active_record/connection_adapters/spanner/database_statements'
 require 'active_record/connection_adapters/spanner/schema_creation'
 require 'active_record/connection_adapters/spanner/schema_statements'
 
@@ -22,6 +23,7 @@ module ActiveRecord
       ADAPTER_OPTS = (CLIENT_PARAMS + [:instance, :database]).freeze
 
       include Spanner::SchemaStatements
+      include Spanner::DatabaseStatements
 
       def initialize(connection, logger, config)
         super(connection, logger, config)
@@ -47,26 +49,6 @@ module ActiveRecord
 
       def disconnect!
         invalidate_session
-      end
-
-      def execute(stmt)
-        case stmt
-        when Spanner::DDL
-          execute_ddl(stmt)
-        else
-          super(stmt)
-        end
-      end
-
-      def exec_query(sql, name = 'SQL', binds = [], prepare: :ignored)
-        log(sql, name, binds) do
-          results = session.execute(sql, streaming: false) 
-          columns = results.types.map(&:first)
-          rows = results.rows.map {|row|
-            columns.map {|name| row[name] }
-          }
-          ActiveRecord::Result.new(columns, rows)
-        end
       end
 
       private

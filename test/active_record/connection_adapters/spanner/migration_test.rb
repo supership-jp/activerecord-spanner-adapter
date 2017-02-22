@@ -21,15 +21,39 @@ describe ActiveRecord::ConnectionAdapters::Spanner::SchemaStatements do
       create_table :principals do |t|
         t.string :email
         t.text :description
-        t.timestamp
+        t.timestamps
+      end
+    end
+  end
+
+  class AddChildTable < ActiveRecord::Migration[5.0]
+    def change
+      create_table :user_profiles do |t|
+        t.references :principal
+        t.string :name
+        t.timestamps
       end
     end
   end
 
   it 'creates table as defined' do
-    AddRootTable.migrate(:up)
-    ActiveRecord::Base.connection.tables.must_include 'principals'
-    AddRootTable.migrate(:down)
+    targets = [
+      [
+        AddRootTable,
+        -> { ActiveRecord::Base.connection.tables.must_include 'principals' },
+      ],
+      [
+        AddChildTable,
+        -> { ActiveRecord::Base.connection.tables.must_include 'user_profiles' },
+      ],
+    ]
+    targets.each do |migration, expectation|
+      migration.migrate(:up)
+      expectation.()
+    end
+    targets.reverse_each do |migration,|
+      migration.migrate(:down)
+    end
   end
 
   private
