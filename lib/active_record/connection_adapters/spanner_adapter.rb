@@ -37,6 +37,10 @@ module ActiveRecord
         Spanner::SchemaCreation.new self
       end
 
+      def arel_visitor
+        QueryVisitor.new(self)
+      end
+
       def active?
         !!@client
         # TODO(yugui) Check db.service.channel.connectivity_state once it is fixed?

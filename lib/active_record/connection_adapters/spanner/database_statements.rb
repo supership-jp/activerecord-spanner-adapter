@@ -4,6 +4,12 @@ module ActiveRecord
       module DatabaseStatements
         include ConnectionAdapters::DatabaseStatements
 
+        class QueryVisitor < ::Arel::Visitors::ToSql
+          def visit_Arel_Nodes_BindParam(o, collector)
+            collector.add_bind(o) {|bind_idx| "@p#{bind_idx}" }
+          end
+        end
+
         class MutationVisitor < ::Arel::Visitors::Visitor
           def initialize(binds)
             super()
@@ -73,19 +79,20 @@ module ActiveRecord
         def exec_query(sql, name = 'SQL', binds = [], prepare: :ignored)
           case
           when binds.kind_of?(Hash)
-            # do nothing
+            spanner_binds = binds
+            binds = binds.values
           when binds.respond_to?(:to_hash)
-            binds = binds.to_hash
+            spanner_binds = binds.to_hash
+            binds = spanner_binds.values
           else
-            binds = binds.each_with_index.inject({}) {|b, (value, i)|
-              # TODO(yugui) Also implement Arel visitor
-              b["@p#{i}"] = value
+            spanner_binds = binds.each_with_index.inject({}) {|b, (attr, i)|
+              b["p#{i+1}"] = type_cast(attr.value_for_database)
               b
             }
           end
 
           log(sql, name, binds) do
-            results = session.execute(sql, params: binds, streaming: false) 
+            results = session.execute(sql, params: spanner_binds, streaming: false) 
             columns = results.types.map(&:first)
             rows = results.rows.map {|row|
               columns.map {|col| row[col] }
