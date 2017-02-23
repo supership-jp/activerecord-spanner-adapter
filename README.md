@@ -1,15 +1,18 @@
 # ActiveRecord Spanner adapter
 
-Welcome to your new gem! In this directory, you'll find the files you need to be able to package up your Ruby library into a gem. Put your Ruby code in the file `lib/activerecord/spanner/adapter`. To experiment with that code, run `bin/console` for an interactive prompt.
+The [Cloud Spanner](https://cloud.google.com/spanner/) adapter for ActiveRecord.
 
-TODO: Delete this and the text above, and describe your gem
+## Status
+Proof of concept.
+You cannot expect that this gem is ready for production use -- many features are not supported.
 
 ## Installation
 
 Add this line to your application's Gemfile:
 
 ```ruby
-gem 'activerecord-spanner-adapter'
+gem 'activerecord-spanner-adapter',
+  git: 'https://github.com/supership-jp/activerecord-spanner-adapter.git'
 ```
 
 And then execute:
@@ -22,7 +25,22 @@ Or install it yourself as:
 
 ## Usage
 
-TODO: Write usage instructions here
+Add a configuration like this into your `database.yml`.
+
+```yaml
+default:
+  adapter: spanner
+  project: your-gcp-project-name
+  instance: your-spanner-instance-name
+  database: your-spanner-database-name
+  keyfile: path/to/serivce-account-credential.json
+```
+
+*NOTE*: This adapter uses UUIDs as primary keys by default unlike other adapters.
+This is because monotonically increasing primary key restricts write performance in Spanner.
+
+c.f. https://cloud.google.com/spanner/docs/best-practices
+
 
 ## Development
 
@@ -32,5 +50,10 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/Yuki Yugui Sonoda/activerecord-spanner-adapter.
+Bug reports and pull requests are welcome on GitHub at https://github.com/supership-jp/activerecord-spanner-adapter.
+
+## License
+Copyright (c) 2017 Supership Inc.
+
+Licensed under MIT license.
 
