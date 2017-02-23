@@ -4,6 +4,7 @@ require 'active_record/connection_adapters/abstract_adapter'
 require 'active_record/connection_adapters/spanner/database_statements'
 require 'active_record/connection_adapters/spanner/schema_creation'
 require 'active_record/connection_adapters/spanner/schema_statements'
+require 'active_record/connection_adapters/spanner/quoting'
 
 module ActiveRecord
   module ConnectionHandling
@@ -24,6 +25,7 @@ module ActiveRecord
 
       include Spanner::SchemaStatements
       include Spanner::DatabaseStatements
+      include Spanner::Quoting
 
       def initialize(connection, logger, config)
         super(connection, logger, config)
@@ -51,8 +53,31 @@ module ActiveRecord
         invalidate_session
       end
 
+      def prefetch_primary_key?(table_name = nil)
+        true
+      end
+
+      def next_sequence_value(table_name = nil)
+        require 'securerandom'
+        SecureRandom.uuid
+      end
+
       private
       attr_reader :client
+
+      def initialize_type_map(m) # :nodoc:
+        register_class_with_limit m, %r(STRING)i, Type::String
+        register_class_with_limit m, %r(BYTES)i, Type::Binary
+        m.register_type %r[STRING(MAX)]i, Type::Text.new(limit: 10 * 1024**2)
+        m.register_type %r[BYTES(MAX)]i, Type::Binary.new(limit: 10 * 1024**2)
+        m.register_type %r[BOOL]i, Type::Boolean.new
+        m.register_type %r[INT64]i, Type::Integer.new(limit: 8)
+        m.register_type %r[FLOAT64]i, Type::Float.new(limit: 53)
+        m.register_type %r[DATE]i, Type::Date.new
+        m.register_type %r[TIMESTAMP]i, Type::DateTime.new
+        # TODO(yugui) Support array and struct
+      end
+
 
       def instance
         @instance ||= client.instance(@instance_id)

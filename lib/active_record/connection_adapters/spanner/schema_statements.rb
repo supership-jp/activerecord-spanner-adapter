@@ -5,7 +5,7 @@ module ActiveRecord
         include ConnectionAdapters::SchemaStatements
 
         NATIVE_DATABASE_TYPES = {
-          primary_key: 'BYTES(36)',
+          primary_key: 'STRING(36)',
           string:      { name: 'STRING', limit: 255 },
           text:        { name: 'STRING', limit: 'MAX' },
           integer:     { name: 'INT64' },
@@ -83,6 +83,41 @@ module ActiveRecord
           end
         end
 
+        def columns(table)
+          params = {table: table}
+          results = exec_query(<<-'SQL', 'SCHEMA', params, prepare: false)
+            SELECT
+              col.column_name,
+              col.column_default,
+              col.is_nullable,
+              col.spanner_type
+            FROM
+              information_schema.columns AS col
+            WHERE
+              col.table_catalog = '' AND
+              col.table_schema = '' AND
+              col.table_name = @table
+            ORDER BY
+              col.ordinal_position
+          SQL
+
+          results.map do |row|
+            Column.new(
+              row['column_name'],
+              row['column_default'],
+              fetch_type_metadata(row['spanner_type']),
+              row['is_nullable'],
+              table,
+            )
+          end
+        end
+
+        def primary_keys(table_name)  # :nodoc:
+          indexes(table_name).find {|index|
+            index.type == 'PRIMARY_KEY'
+          }.columns
+        end
+
         def create_database(name, instance_id: nil, statements: [])
           service = instance.service
           job = service.create_database(instance_id || instance.instance_id, name,
@@ -120,17 +155,6 @@ module ActiveRecord
               #{index_options}
           SQL
         end
-
-        IDENTIFIERS_PATTERN = /\A[a-zA-Z][a-zA-Z0-9_]*\z/
-
-        def assert_valid_identifier(name)
-          # https://cloud.google.com/spanner/docs/data-definition-language?hl=ja#ddl_syntax
-          raise ArgumentError, "invalid table name #{name}" unless IDENTIFIERS_PATTERN =~ name
-          name
-        end
-
-        alias quote_table_name assert_valid_identifier
-        alias quote_column_name assert_valid_identifier
 
         def execute_ddl(*ddls)
           log(ddls.join(";\n"), 'SCHEMA') do

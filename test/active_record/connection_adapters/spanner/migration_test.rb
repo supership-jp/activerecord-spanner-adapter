@@ -19,7 +19,7 @@ describe ActiveRecord::ConnectionAdapters::Spanner::SchemaStatements do
   class AddRootTable < ActiveRecord::Migration[5.0]
     def change
       create_table :principals do |t|
-        t.string :email
+        t.string :email, null: false
         t.text :description
         t.timestamps
       end
@@ -30,7 +30,7 @@ describe ActiveRecord::ConnectionAdapters::Spanner::SchemaStatements do
     def change
       create_table :user_profiles do |t|
         t.references :principal
-        t.string :name
+        t.string :name, null: false
         t.timestamps
       end
     end
