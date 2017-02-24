@@ -10,12 +10,45 @@ module ActiveRecord
           end
         end
 
+        # A mixin which provides ways to resolve rvalues.
+        module RightValueResolveable
+          def visit_Arel_Nodes_BindParam(o)
+            binds.shift
+          end
+
+          def visit_Array(o)
+            o.map {|item| accept(item) }
+          end
+
+          def visit_Arel_Nodes_Casted(o)
+            a = o.attribute
+            if a.able_to_type_cast?
+              a.type_cast_for_database(o.val)
+            else
+              o.val
+            end
+          end
+
+          private
+          # To be overridden
+          def binds
+            raise NotImplementedError
+          end
+        end
+
+        # Converts ASTs of INSERT, UPDATE or DELETE statements into forms
+        # convenient for DatabaseStatements#insert, #update and #delete.
         class MutationVisitor < ::Arel::Visitors::Visitor
+          include RightValueResolveable
+
           def initialize(schema_reader, binds)
             super()
             @schema_reader = schema_reader
             @binds = binds
           end
+
+          attr_reader :binds
+          private :binds
 
           def visit_Arel_Nodes_InsertStatement(o)
             raise NotImplementedError, 'INSERT INTO SELECT statement is not supported' if o.select
@@ -46,42 +79,14 @@ module ActiveRecord
               return fallback_result
             end
 
-            # Returns fallback_result unless o.wheres is one of the followings
-            # (1)
-            #   and:
-            #   - equality:
-            #     left:
-            #       attribute:
-            #         relation: o.relation
-            #         name: primary key
-            #     right:
-            #       bind_param:
-            #
-            # (2)
-            #   equality:
-            #    left:
-            #      attribute:
-            #        relation: o.relation
-            #        name: primary key
-            #    right:
-            #      bind_param:
-            #
-            cond = o.wheres[0]
-            if cond.kind_of?(Arel::Nodes::And)
-              return fallback_result unless cond.children.size == 1
-              cond = cond.left
-            end
-
-            return fallback_result unless \
-              cond.kind_of?(Arel::Nodes::Equality) and
-              cond.left.kind_of?(Arel::Attributes::Attribute)
-
-            attr = cond.left
             pk = @schema_reader.primary_key(table)
-            return fallback_result unless attr.relation == o.relation and attr.name == pk
+            ids = WhereVisitor.new(o.relation, pk, binds).accept(o.wheres[0])
 
-            ids = [accept(cond.right)]
-            return [table, ids]
+            if ids
+              return [table, ids]
+            else
+              return fallback_result
+            end
           end
 
           def visit_Arel_Nodes_Values o
@@ -89,16 +94,78 @@ module ActiveRecord
               case value
               when ::Arel::Nodes::SqlLiteral
                 raise NotImplementedError, "mutation with SQL literal is not supported"
-              when ::Arel::Nodes::BindParam
-                accept(value)
               else
-                value
+                accept(value)
               end
             end
           end
+        end
 
-          def visit_Arel_Nodes_BindParam(o)
-            @binds.shift
+        # Tries to convert where clause into a set of ids if it is simple enough.
+        # Returns nil if the clause is not simple.
+        class WhereVisitor < ::Arel::Visitors::Visitor
+          include RightValueResolveable
+
+          NOT_SIMPLE = nil
+
+          def initialize(relation, pk, binds)
+            super()
+            @relation = relation
+            @pk = pk
+            @binds = binds
+          end
+
+          attr_reader :binds
+          private :binds
+
+          def visit_Arel_Nodes_And(o)
+            if o.children.size == 1
+              accept(o.left)
+            else
+              NOT_SIMPLE
+            end
+          end
+
+          def visit_Arel_Nodes_Equality(o)
+            if pk_cond?(o)
+              accept(o.right)
+            else
+              NOT_SIMPLE
+            end
+          end
+
+          def visit_Arel_Nodes_In(o)
+            return nil unless pk_cond?(o)
+
+            if o.kind_of?(Array) and o.empty?
+              []
+            else
+              accept(o.right)
+            end
+          end
+
+          def unsupported(o)
+            return NOT_SIMPLE
+          end
+
+          alias visit_Arel_Nodes_Grouping unsupported
+          alias visit_Arel_Nodes_NotIn unsupported
+          alias visit_Arel_Nodes_Or unsupported
+          alias visit_Arel_Nodes_NotEqual unsupported
+          alias visit_Arel_Nodes_Case unsupported
+          alias visit_Arel_Nodes_Between unsupported
+          alias visit_Arel_Nodes_GreaterThanOrEqual unsupported
+          alias visit_Arel_Nodes_GreaterThan unsupported
+          alias visit_Arel_Nodes_LessThanOrEqual unsupported
+          alias visit_Arel_Nodes_LessThan unsupported
+          alias visit_Arel_Nodes_Matches unsupported
+          alias visit_Arel_Nodes_DoesNotMatch unsupported
+
+          private
+          def pk_cond?(o)
+            o.left.kind_of?(Arel::Attributes::Attribute) &&
+              o.left.relation == @relation &&
+              o.left.name == @pk
           end
         end
 
@@ -129,7 +196,7 @@ module ActiveRecord
           raise NotImplementedError, "DELETE in raw SQL is not supported" unless arel.respond_to?(:ast)
 
           type_casted_binds = binds.map {|attr| type_cast(attr.value_for_database) }
-          table, target, wheres = MutationVisitor.new(self, type_casted_binds).accept(arel.ast)
+          table, target, wheres = MutationVisitor.new(self, type_casted_binds.dup).accept(arel.ast)
 
           # TODO(yugui) Support composite primary key?
           pk = primary_key(table)
@@ -143,6 +210,9 @@ module ActiveRecord
           if target == :all
             keyset = []
             fake_sql = "DELETE FROM #{quote_column_name(table)}"
+          elsif target.size > 1
+            fake_sql = "DELETE FROM #{quote_column_name(table)} WHERE (primary-key) IN ?"
+            keyset = target
           else
             fake_sql = "DELETE FROM #{quote_column_name(table)} WHERE (primary-key) = ?"
             keyset = target

@@ -35,6 +35,21 @@ describe ActiveRecord::ConnectionAdapters::Spanner::SchemaStatements do
     Product.exists?(created.id).must_be :==, false
   end
 
+  it 'deletes existing records' do
+    ids = (1..3).map do |i|
+      created = Product.create! \
+        name: "ground-ploughing hog #{i}",
+        description: 'Ploughs the ground for you',
+        price: 1500 + i
+    end
+
+    ids.shift
+
+    Product.delete(ids)
+
+    Product.count.must_be :==, 1
+  end
+
   it 'deletes all the existing records' do
     10.times do |i|
       created = Product.create! \
