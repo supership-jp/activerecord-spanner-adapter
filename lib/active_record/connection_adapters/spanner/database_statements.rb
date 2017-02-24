@@ -11,8 +11,9 @@ module ActiveRecord
         end
 
         class MutationVisitor < ::Arel::Visitors::Visitor
-          def initialize(binds)
+          def initialize(schema_reader, binds)
             super()
+            @schema_reader = schema_reader
             @binds = binds
           end
 
@@ -29,18 +30,75 @@ module ActiveRecord
             [table, columns, values]
           end
 
+          def visit_Arel_Nodes_DeleteStatement(o)
+            table = o.relation.name
+
+            # fallback_result lets the caller query the target id set at first and then
+            # delete the ids.
+            fallback_result = [table, nil, o.wheres]
+
+            case o.wheres.size
+            when 0
+              return [table, :all]
+            when 1
+              # it might be a simple "id = ?". Let's check later
+            else
+              return fallback_result
+            end
+
+            # Returns fallback_result unless o.wheres is one of the followings
+            # (1)
+            #   and:
+            #   - equality:
+            #     left:
+            #       attribute:
+            #         relation: o.relation
+            #         name: primary key
+            #     right:
+            #       bind_param:
+            #
+            # (2)
+            #   equality:
+            #    left:
+            #      attribute:
+            #        relation: o.relation
+            #        name: primary key
+            #    right:
+            #      bind_param:
+            #
+            cond = o.wheres[0]
+            if cond.kind_of?(Arel::Nodes::And)
+              return fallback_result unless cond.children.size == 1
+              cond = cond.left
+            end
+
+            return fallback_result unless \
+              cond.kind_of?(Arel::Nodes::Equality) and
+              cond.left.kind_of?(Arel::Attributes::Attribute)
+
+            attr = cond.left
+            pk = @schema_reader.primary_key(table)
+            return fallback_result unless attr.relation == o.relation and attr.name == pk
+
+            ids = [accept(cond.right)]
+            return [table, ids]
+          end
+
           def visit_Arel_Nodes_Values o
-            bind_idx = 0
             o.expressions.map.with_index do |value|
               case value
               when ::Arel::Nodes::SqlLiteral
                 raise NotImplementedError, "mutation with SQL literal is not supported"
               when ::Arel::Nodes::BindParam
-                @binds[bind_idx].tap { bind_idx += 1 }
+                accept(value)
               else
                 value
               end
             end
+          end
+
+          def visit_Arel_Nodes_BindParam(o)
+            @binds.shift
           end
         end
 
@@ -48,7 +106,7 @@ module ActiveRecord
           raise NotImplementedError, "INSERT in raw SQL is not supported" unless arel.respond_to?(:ast)
 
           type_casted_binds = binds.map {|attr| type_cast(attr.value_for_database) }
-          table, columns, values = MutationVisitor.new(type_casted_binds).accept(arel.ast)
+          table, columns, values = MutationVisitor.new(self, type_casted_binds).accept(arel.ast)
           fake_sql = <<~"SQL"
             INSERT INTO #{table}(#{columns.join(", ")}) VALUES (#{values.join(", ")})
           SQL
@@ -65,6 +123,38 @@ module ActiveRecord
           end
 
           id_value
+        end
+
+        def delete(arel, name, binds)
+          raise NotImplementedError, "DELETE in raw SQL is not supported" unless arel.respond_to?(:ast)
+
+          type_casted_binds = binds.map {|attr| type_cast(attr.value_for_database) }
+          table, target, wheres = MutationVisitor.new(self, type_casted_binds).accept(arel.ast)
+
+          # TODO(yugui) Support composite primary key?
+          pk = primary_key(table)
+          if target.nil?
+            where_clause = visitor.accept(wheres, collector).compile(binds.dup, self)
+            target = select_values(<<~"SQL", name, binds)
+              SELECT #{quote_column_name(pk)} FROM #{quote_table_name(table)} WHERE #{where_clause}
+            SQL
+          end
+
+          if target == :all
+            keyset = []
+            fake_sql = "DELETE FROM #{quote_column_name(table)}"
+          else
+            fake_sql = "DELETE FROM #{quote_column_name(table)} WHERE (primary-key) = ?"
+            keyset = target
+          end
+
+          log(fake_sql, name, binds) do
+            session.commit do |c|
+              c.delete(table, keyset)
+            end
+          end
+
+          keyset.size
         end
 
         def execute(stmt)
