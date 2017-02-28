@@ -76,4 +76,39 @@ describe ActiveRecord::ConnectionAdapters::Spanner::SchemaStatements do
       (prod.price % 3).wont_be :==, 1
     end
   end
+
+  it 'updates an existing record' do
+    created = Product.create! \
+      name: 'spider silk cloth',
+      description: 'well-dyed cloth of spider silk',
+      price: 2000
+
+    created.price = 2500
+    created.save.must_equal true
+
+    Product.find(created.id).price.must_equal 2500
+  end
+
+  it 'updates matching records if a condition given' do
+    %w[ black brown red orange yellow green blue purple gray white ].each do |color|
+      created = Product.create! \
+        name: "spider silk cloth : #{color}",
+        description: "well-dyed #{color} cloth of spider silk",
+        price: 1500
+    end
+
+    Product.where('name LIKE ?', '% : blue').
+      or(Product.where('name LIKE ?', '% : orange')).
+      update(:all, price: 1000)
+    # ActiveRecord::Relation.update_all generates SqlLiteral for SET clause in UPDATE statement.
+    # So this adapter cannot support such statements.
+
+    Product.all.each do |prod|
+      if prod.name.ends_with? 'blue' or prod.name.ends_with? 'orange'
+        prod.price.must_equal 1000
+      else
+        prod.price.must_equal 1500
+      end
+    end
+  end
 end

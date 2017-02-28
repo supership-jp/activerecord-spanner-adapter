@@ -63,6 +63,21 @@ module ActiveRecord
             [table, columns, values]
           end
 
+          def visit_Arel_Nodes_UpdateStatement(o)
+            table = o.relation.name
+            values = accept(o.values)
+            pk = @schema_reader.primary_key(table)
+
+            unless o.orders.empty? and o.limit.nil? and o.wheres.size == 1
+              raise NotImplementedError, 'UPDATE statements with ORDER, LIMIT or complex WHERE clause'
+            end
+
+            ids = WhereVisitor.new(o.relation, pk, binds).accept(o.wheres[0])
+            raise NotImplementedError 'UPDATE statements with complex WHERE clause' unless ids
+
+            [table, ids, values]
+          end
+
           def visit_Arel_Nodes_DeleteStatement(o)
             table = o.relation.name
 
@@ -99,6 +114,14 @@ module ActiveRecord
               end
             end
           end
+
+          def visit_Arel_Nodes_Assignment(o)
+            [accept(o.left), accept(o.right)]
+          end
+
+          def visit_Arel_Nodes_UnqualifiedColumn(o)
+            o.name
+          end
         end
 
         # Tries to convert where clause into a set of ids if it is simple enough.
@@ -128,7 +151,7 @@ module ActiveRecord
 
           def visit_Arel_Nodes_Equality(o)
             if pk_cond?(o)
-              accept(o.right)
+              [accept(o.right)]
             else
               NOT_SIMPLE
             end
@@ -192,6 +215,35 @@ module ActiveRecord
           id_value
         end
 
+        def update(arel, name = nil, binds = [])
+          raise NotImplementedError, "DELETE in raw SQL is not supported" unless arel.respond_to?(:ast)
+
+          type_casted_binds = binds.map {|attr| type_cast(attr.value_for_database) }
+          table, target, values = MutationVisitor.new(self, type_casted_binds.dup).accept(arel.ast)
+
+          fake_set = values.map {|col, val|
+            "#{quote_column_name(col)} = #{quote(val)}"
+          }.join(', ')
+
+          pk = primary_key(table)
+          if target.size > 1
+            fake_sql = "UPDATE #{quote_column_name(table)} SET #{fake_set} WHERE #{pk} IN ?"
+          else
+            fake_sql = "UPDATE #{quote_column_name(table)} SET #{fake_set} WHERE #{pk} = ?"
+          end
+
+          row = values.inject({}) {|r, (col, val)| r[col] = val; r }
+          rows = target.map {|id| row.merge(pk => id) }
+
+          log(fake_sql, name, binds) do
+            session.commit do |c|
+              c.update(table, rows)
+            end
+          end
+
+          true
+        end
+
         def delete(arel, name, binds)
           raise NotImplementedError, "DELETE in raw SQL is not supported" unless arel.respond_to?(:ast)
 
@@ -202,6 +254,7 @@ module ActiveRecord
           pk = primary_key(table)
           if target.nil?
             where_clause = visitor.accept(wheres, collector).compile(binds.dup, self)
+            # TODO(yugui) keep consistency with transaction
             target = select_values(<<~"SQL", name, binds)
               SELECT #{quote_column_name(pk)} FROM #{quote_table_name(table)} WHERE #{where_clause}
             SQL

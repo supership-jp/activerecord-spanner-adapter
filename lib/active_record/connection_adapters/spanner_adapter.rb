@@ -85,14 +85,19 @@ module ActiveRecord
 
       def instance
         @instance ||= client.instance(@instance_id)
+        raise ActiveRecord::NoDatabaseError unless @instance
+
+        @instance
       end
 
       def database
         return @db if @db
 
         @db = instance.database(@database_id)
-        raise ActiveRecord::ConnectionNotEstablished, 
+        raise ActiveRecord::NoDatabaseError unless @db
+        raise ActiveRecord::ConnectionNotEstablished,
           "database #{@db.database_path} is not ready" unless @db.ready?
+
         @db
       end
 
