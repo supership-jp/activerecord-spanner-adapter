@@ -119,16 +119,14 @@ module ActiveRecord
         end
 
         def create_database(name, instance_id: nil, statements: [])
-          service = instance.service
-          job = service.create_database(instance_id || instance.instance_id, name,
-                                        statements: statements)
+          job = conn.create_database(instance_id || @instance_id, name,
+                                     statements: statements)
           job.wait_until_done! unless job.done?
           raise_on_error(job)
         end
 
         def drop_database(name, instance_id: nil)
-          service = instance.service
-          service.drop_database(instance_id || instance.instance_id, name)
+          conn.service.drop_database(instance_id || @instance_id, name)
         end
 
         def drop_table(name, options = {})
