@@ -207,7 +207,7 @@ module ActiveRecord
           }
 
           log(fake_sql, name) do
-            session.commit do |c|
+            client.commit do |c|
               c.insert table, row
             end
           end
@@ -216,7 +216,7 @@ module ActiveRecord
         end
 
         def update(arel, name = nil, binds = [])
-          raise NotImplementedError, "DELETE in raw SQL is not supported" unless arel.respond_to?(:ast)
+          raise NotImplementedError, "UPDATE statement in raw SQL is not supported" unless arel.respond_to?(:ast)
 
           type_casted_binds = binds.map {|attr| type_cast(attr.value_for_database) }
           table, target, values = MutationVisitor.new(self, type_casted_binds.dup).accept(arel.ast)
@@ -236,16 +236,15 @@ module ActiveRecord
           rows = target.map {|id| row.merge(pk => id) }
 
           log(fake_sql, name, binds) do
-            session.commit do |c|
+            client.commit do |c|
               c.update(table, rows)
             end
           end
-
-          true
+          target.size
         end
 
         def delete(arel, name, binds)
-          raise NotImplementedError, "DELETE in raw SQL is not supported" unless arel.respond_to?(:ast)
+          raise NotImplementedError, "DELETE statement in raw SQL is not supported" unless arel.respond_to?(:ast)
 
           type_casted_binds = binds.map {|attr| type_cast(attr.value_for_database) }
           table, target, wheres = MutationVisitor.new(self, type_casted_binds.dup).accept(arel.ast)
@@ -272,7 +271,7 @@ module ActiveRecord
           end
 
           log(fake_sql, name, binds) do
-            session.commit do |c|
+            client.commit do |c|
               c.delete(table, keyset)
             end
           end
@@ -305,11 +304,9 @@ module ActiveRecord
           end
 
           log(sql, name, binds) do
-            results = session.execute(sql, params: spanner_binds, streaming: false) 
-            columns = results.types.map(&:first)
-            rows = results.rows.map {|row|
-              columns.map {|col| row[col] }
-            }
+            results = client.execute(sql, params: spanner_binds) 
+            columns = results.fields.keys
+            rows = results.rows.map(&:to_a)
             ActiveRecord::Result.new(columns.map(&:to_s), rows)
           end
         end

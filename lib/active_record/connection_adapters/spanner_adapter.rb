@@ -5,6 +5,7 @@ require 'active_record/connection_adapters/spanner/database_statements'
 require 'active_record/connection_adapters/spanner/schema_creation'
 require 'active_record/connection_adapters/spanner/schema_statements'
 require 'active_record/connection_adapters/spanner/quoting'
+require 'grpc'
 
 module ActiveRecord
   module ConnectionHandling
@@ -42,19 +43,21 @@ module ActiveRecord
       end
 
       def active?
-        !!@client
-        # TODO(yugui) Check db.service.channel.connectivity_state once it is fixed?
+        [
+          ::GRPC::Core::ConnectivityStates::IDLE,
+          ::GRPC::Core::ConnectivityStates::READY,
+        ].include?(@conn.service.channel.connectivity_state)
       end
 
       def connect(params)
         client_params = params.slice(*CLIENT_PARAMS)
-        @client = Google::Cloud::Spanner.new(**client_params)
+        @conn = Google::Cloud::Spanner.new(**client_params)
         @instance_id = params[:instance]
         @database_id = params[:database]
       end
 
       def disconnect!
-        invalidate_session
+        release_client!
       end
 
       def prefetch_primary_key?(table_name = nil)
@@ -67,7 +70,7 @@ module ActiveRecord
       end
 
       private
-      attr_reader :client
+      attr_reader :conn, :client
 
       def initialize_type_map(m) # :nodoc:
         register_class_with_limit m, %r(STRING)i, Type::String
@@ -82,9 +85,8 @@ module ActiveRecord
         # TODO(yugui) Support array and struct
       end
 
-
       def instance
-        @instance ||= client.instance(@instance_id)
+        @instance ||= conn.instance(@instance_id)
         raise ActiveRecord::NoDatabaseError unless @instance
 
         @instance
@@ -101,13 +103,13 @@ module ActiveRecord
         @db
       end
 
-      def session
-        @session ||= database.session
+      def client
+        @client ||= conn.client(@instance_id, @database_id)
       end
 
-      def invalidate_session
-        @session&.delete_session
-        @session = nil
+      def release_client!
+        @client&.close
+        @client = nil
       end
     end
   end

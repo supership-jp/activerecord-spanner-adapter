@@ -9,7 +9,7 @@ describe ActiveRecord::ConnectionAdapters::Spanner::SchemaStatements do
   before do
     establish_connection
 
-    Product.connection.send(:session).commit do |c|
+    Product.connection.send(:client).commit do |c|
       c.delete 'products'
     end
   end
