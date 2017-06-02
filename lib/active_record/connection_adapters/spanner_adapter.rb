@@ -1,7 +1,9 @@
 require 'google/cloud/spanner'
 
 require 'active_record/connection_adapters/abstract_adapter'
+require 'active_record/connection_adapters/spanner/client'
 require 'active_record/connection_adapters/spanner/database_statements'
+require 'active_record/connection_adapters/spanner/transaction'
 require 'active_record/connection_adapters/spanner/schema_creation'
 require 'active_record/connection_adapters/spanner/schema_statements'
 require 'active_record/connection_adapters/spanner/quoting'
@@ -29,9 +31,9 @@ module ActiveRecord
       include Spanner::Quoting
 
       def initialize(connection, logger, config)
-        super(connection, logger, config)
         conn_params = config.symbolize_keys.slice(*ADAPTER_OPTS)
         connect(conn_params)
+        super(connection, logger, config)
       end
 
       def schema_creation # :nodoc:
@@ -57,6 +59,7 @@ module ActiveRecord
       end
 
       def disconnect!
+        super
         release_client!
       end
 
@@ -70,7 +73,7 @@ module ActiveRecord
       end
 
       private
-      attr_reader :conn, :client
+      attr_reader :conn
 
       def initialize_type_map(m) # :nodoc:
         register_class_with_limit m, %r(STRING)i, Type::String
@@ -103,15 +106,22 @@ module ActiveRecord
         @db
       end
 
+      def raw_client
+        @raw_client ||= conn.client(@instance_id, @database_id)
+      end
+
       def client
-        @client ||= conn.client(@instance_id, @database_id)
+        @client ||= ConnectionAdapters::Spanner::InitialPhaseClient.new(raw_client)
       end
 
       def release_client!
         @client&.close
         @client = nil
       end
+
+      #def reset_transaction
+      #  # @transaction_manager = Spanner::TransactionManager.new(self, client)
+      #end
     end
   end
 end
-

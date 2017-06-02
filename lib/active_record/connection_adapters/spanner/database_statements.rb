@@ -207,9 +207,7 @@ module ActiveRecord
           }
 
           log(fake_sql, name) do
-            client.commit do |c|
-              c.insert table, row
-            end
+            with_phase_transition {|client| client.insert(table, row) }
           end
 
           id_value
@@ -236,9 +234,7 @@ module ActiveRecord
           rows = target.map {|id| row.merge(pk => id) }
 
           log(fake_sql, name, binds) do
-            client.commit do |c|
-              c.update(table, rows)
-            end
+            with_phase_transition {|client| client.update(table, rows) }
           end
           target.size
         end
@@ -271,9 +267,7 @@ module ActiveRecord
           end
 
           log(fake_sql, name, binds) do
-            client.commit do |c|
-              c.delete(table, keyset)
-            end
+            with_phase_transition {|client| client.delete(table, keyset) }
           end
 
           keyset.size
@@ -304,11 +298,45 @@ module ActiveRecord
           end
 
           log(sql, name, binds) do
-            results = client.execute(sql, params: spanner_binds) 
+            executor = client
+            executor = raw_client if name == 'SCHEMA'
+            results = executor.execute(sql, params: spanner_binds) 
             columns = results.fields.keys
             rows = results.rows.map(&:to_a)
             ActiveRecord::Result.new(columns.map(&:to_s), rows)
           end
+        end
+
+        #def transaction(requires_new: nil, joinable: true,
+        #               deadline: nil, snapshot: nil)
+        #  if !requires_new && current_transaction.joinable?
+        #    yield
+        #  else
+        #    within_new_transaction(deadline: deadline, snapshot: snapshot, joinable: joinable) { yield }
+        #  end
+        #rescue ActiveRecord::Rollback
+        #  # do nothing
+        #end
+
+        def begin_db_transaction
+          with_phase_transition {|client| client.begin_transaction }
+        end
+
+        def begin_isolated_db_transaction(isolation)
+          with_phase_transition {|client| client.begin_snapshot(**isolation) }
+        end
+
+        def commit_db_transaction
+          with_phase_transition {|client| client.commit }
+        end
+
+        def exec_rollback_db_transaction
+          with_phase_transition {|client| client.rollback }
+        end
+
+        def with_phase_transition
+          yield client
+          @client = client.next
         end
       end
     end
