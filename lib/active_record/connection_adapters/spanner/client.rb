@@ -36,63 +36,50 @@ module ActiveRecord
       end
 
       class ReadWriteTransactionClient
-        def initialize(client, tx, tx_closer)
+        def initialize(client, tx, commit_op, rollback_op)
           @next = self
-          @readable = true
           @client = client
           @tx = tx
 
-          pending_commit = @tx.enum_for(:commit)
-          @commit_op = ->{
-            begin
-              loop { pending_commit.next }
-            ensure
-              tx_closer.call
-            end
-          }
-          @rollback_op = ->{
-            begin
-              tx.safe_rollback
-            ensure
-              tx_closer.call
-            end
-          }
-
-          begin
-            @mutations = pending_commit.next
-          rescue
-            tx_closer.call
-            raise
-          end
+          @commit_op = commit_op
+          @rollback_op = rollback_op
         end
 
-        def self.begin(client)
-          enum = client.enum_for(:transaction, deadline: 0)
-          closer = ->{ loop { enum.next } }
+        class << self
+          def begin(client)
+            enum = enum_for(:transaction, client, deadline: 0)
+            closer = ->{ loop { enum.next } }
 
-          begin
-            return new(client, enum.next, closer)
-          rescue
-            closer.call
-            raise
+            begin
+              tx, rollback_op = enum.next
+              on_rollback = ->{
+                begin
+                  rollback_op.call
+                ensure
+                  closer.call
+                end
+              }
+              return ReadPhaseClient.new(client, tx, closer, on_rollback)
+            rescue
+              closer.call
+              raise
+            end
+          end
+
+          private
+          def transaction(client, *args)
+            client.transaction(*args) do |tx|
+              rollbacked = false
+              yield tx, ->{ rollbacked = true }
+              raise Google::Cloud::Spanner::Rollback if rollbacked
+            end
           end
         end
 
         attr_reader :next
 
         delegate :close, to: :client
-        #delegate :execute, to: :tx
-        # delegate :insert, :update, :delete, to: :mutations
-
-        %w[ insert update delete ].each do |name|
-          class_eval(<<-"EOS", __FILE__, __LINE__+1)
-            def #{name}(*args)
-              mutations.#{name}(*args).tap do
-                @readable = false
-              end
-            end
-          EOS
-        end
+        delegate :execute, :insert, :update, :delete, to: :tx
 
         def execute(*args)
           return tx.execute(*args) if @readable
@@ -110,7 +97,25 @@ module ActiveRecord
         end
 
         private
-        attr_reader :mutations, :client, :tx  # :nodoc:
+        attr_reader :client, :tx  # :nodoc:
+      end
+
+      class ReadPhaseClient < ReadWriteTransactionClient
+        %w[ insert update delete ].each do |name|
+          class_eval(<<-"EOS", __FILE__, __LINE__+1)
+            def #{name}(*args)
+              super.tap do
+                @next = WritePhaseClient.new(@client, @tx, @commit_op, @rollback_op)
+              end
+            end
+          EOS
+        end
+      end
+
+      class WritePhaseClient < ReadWriteTransactionClient
+        def execute(*args)
+          raise TransactionStateError, "cannot read after write within a transaction"
+        end
       end
 
       class SnapshotClient

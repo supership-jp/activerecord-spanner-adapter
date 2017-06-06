@@ -307,17 +307,6 @@ module ActiveRecord
           end
         end
 
-        #def transaction(requires_new: nil, joinable: true,
-        #               deadline: nil, snapshot: nil)
-        #  if !requires_new && current_transaction.joinable?
-        #    yield
-        #  else
-        #    within_new_transaction(deadline: deadline, snapshot: snapshot, joinable: joinable) { yield }
-        #  end
-        #rescue ActiveRecord::Rollback
-        #  # do nothing
-        #end
-
         def begin_db_transaction
           with_phase_transition {|client| client.begin_transaction }
         end
