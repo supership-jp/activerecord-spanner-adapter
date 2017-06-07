@@ -6,7 +6,7 @@ require 'active_record/connection_adapters/spanner'
 
 ActiveRecord::Base.logger = Logger.new(STDERR)
 
-module ActiveRecord::ConnectionAdapters::Spanner::TestHelper
+module ActiveRecord::ConnectionAdapters::Spanner::SpecHelper
   private
   TEST_INSTANCE = "yugui-experimental"
 
@@ -21,5 +21,6 @@ module ActiveRecord::ConnectionAdapters::Spanner::TestHelper
   end
 end
 
-require 'minitest/spec'
-require 'minitest/autorun'
+RSpec.configure do |config|
+end
+

@@ -1,7 +1,7 @@
-require 'test_helper'
+require 'spec_helper'
 
 describe ActiveRecord::ConnectionAdapters::Spanner::SchemaStatements do
-  include ActiveRecord::ConnectionAdapters::Spanner::TestHelper
+  include ActiveRecord::ConnectionAdapters::Spanner::SpecHelper
 
   let(:db_name) do
     name = "testdb_#{Time.now.to_i}"
@@ -36,15 +36,15 @@ describe ActiveRecord::ConnectionAdapters::Spanner::SchemaStatements do
     end
   end
 
-  it 'creates table as defined' do
+  it 'creates tables' do
     targets = [
       [
         AddRootTable,
-        -> { ActiveRecord::Base.connection.tables.must_include 'principals' },
+        -> { expect(tables).to include('principals') },
       ],
       [
         AddChildTable,
-        -> { ActiveRecord::Base.connection.tables.must_include 'user_profiles' },
+        -> { expect(tables).to include('user_profiles') },
       ],
     ]
     targets.each do |migration, expectation|
@@ -57,8 +57,8 @@ describe ActiveRecord::ConnectionAdapters::Spanner::SchemaStatements do
   end
 
   private
-  def new_migration(&body)
-    Class.new(ActiveRecord::Migration[5.0], &body)
+  def tables
+    ActiveRecord::Base.connection.tables
   end
 end
 
