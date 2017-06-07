@@ -48,7 +48,13 @@ module ActiveRecord
         class << self
           def begin(client)
             enum = enum_for(:transaction, client, deadline: 0)
-            closer = ->{ loop { enum.next } }
+            closer = ->{
+              begin
+                enum.next
+              rescue StopIteration => stop
+                stop.result
+              end
+            }
 
             begin
               tx, rollback_op = enum.next
@@ -81,19 +87,25 @@ module ActiveRecord
         delegate :close, to: :client
         delegate :execute, :insert, :update, :delete, to: :tx
 
-        def execute(*args)
-          return tx.execute(*args) if @readable
-          raise TransactionStateError, "cannot read after write within a transaction"
-        end
-
         def commit
-          @commit_op.call
-          @next = InitialPhaseClient.new(@client)
+          result = @commit_op.call
+          result.tap do
+            @next = InitialPhaseClient.new(@client)
+          end
         end
 
         def rollback
-          @rollback_op.call
-          @next = InitialPhaseClient.new(@client)
+          @rollback_op.call.tap do
+            @next = InitialPhaseClient.new(@client)
+          end
+        end
+
+        %w[ begin_transaction begin_snapshot ].each do |name|
+          class_eval(<<-"EOS", __FILE__, __LINE__+1)
+            def #{name}(*args)
+              raise TransactionStateError, 'already in a transaction'
+            end
+          EOS
         end
 
         private
@@ -104,11 +116,14 @@ module ActiveRecord
         %w[ insert update delete ].each do |name|
           class_eval(<<-"EOS", __FILE__, __LINE__+1)
             def #{name}(*args)
-              super.tap do
-                @next = WritePhaseClient.new(@client, @tx, @commit_op, @rollback_op)
-              end
+              super.tap { transit_to_write_phase }
             end
           EOS
+        end
+
+        private
+        def transit_to_write_phase
+          @next = WritePhaseClient.new(@client, @tx, @commit_op, @rollback_op)
         end
       end
 
@@ -119,18 +134,19 @@ module ActiveRecord
       end
 
       class SnapshotClient
-        def initialize(client, snapshot)
+        def initialize(client, **options)
           @client = client
-          @snapshot = snapshot
+
+          enum = client.enum_for(:snapshot, **options)
+          @snapshot, @closer = enum.next, ->{ loop { enum.next } }
           @next = self
         end
 
-        attr_reader :next
-
-        def self.begin(client, **options)
-          enum = client.enum_for(:snapshot, **options)
-          new(client, enum.next)
+        class << self
+          alias begin new
         end
+
+        attr_reader :next
 
         delegate :close, to: :client
         delegate :execute, to: :snapshot
@@ -146,14 +162,28 @@ module ActiveRecord
         %w[ commit rollback ].each do |name|
           class_eval(<<-"EOS", __FILE__, __LINE__+1)
             def #{name}
-              @next = InitialPhaseClient.new(@client)
+              terminate_phase
               true
+            end
+          EOS
+        end
+
+        %w[ begin_transaction begin_snapshot ].each do |name|
+          class_eval(<<-"EOS", __FILE__, __LINE__+1)
+            def #{name}(*args)
+              raise TransactionStateError, 'already in a transaction'
             end
           EOS
         end
 
         private
         attr_reader :client, :snapshot
+
+        def terminate_phase
+          @next = InitialPhaseClient.new(@client)
+        ensure
+          @closer.call
+        end
       end
     end
   end

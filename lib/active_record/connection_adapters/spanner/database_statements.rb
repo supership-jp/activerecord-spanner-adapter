@@ -324,8 +324,9 @@ module ActiveRecord
         end
 
         def with_phase_transition
-          yield client
+          result = yield client
           @client = client.next
+          result
         end
       end
     end
