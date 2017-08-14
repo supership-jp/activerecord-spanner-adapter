@@ -3,8 +3,8 @@
 The [Cloud Spanner](https://cloud.google.com/spanner/) adapter for ActiveRecord.
 
 ## Status
-Proof of concept.
-You cannot expect that this gem is ready for production use -- many features are not supported.
+Experimental.
+You cannot expect that this gem is ready for production use -- incompatible API change can happen without notice.
 
 ## Installation
 
